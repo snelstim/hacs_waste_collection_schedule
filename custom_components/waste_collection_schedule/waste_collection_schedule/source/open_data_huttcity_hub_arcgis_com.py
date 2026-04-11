@@ -87,7 +87,7 @@ ARCGIS_QUERY_URL = (
     "/Rubbish_and_recycling_collection_days/FeatureServer/0/query"
 )
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-NOMINATIM_HEADERS = {"User-Agent": "hacs_waste_collection_schedule toogoodtowaste_co_nz"}
+NOMINATIM_HEADERS = {"User-Agent": "hacs_waste_collection_schedule open_data_huttcity_hub_arcgis_com"}
 NAGER_DATE_URL = "https://date.nager.at/api/v3/PublicHolidays/{year}/NZ"
 
 # HCC only shifts collection for these three holidays (all others collect as normal)
@@ -107,6 +107,10 @@ HCC_SHIFTED_HOLIDAYS = {"Good Friday", "Christmas Day", "New Year's Day"}
 #
 # To get the anchor for any property:
 #   anchor = zone_week_monday + weekday_offset(Collection_Day)
+#
+# NOTE: These anchors are permanent historical reference points — they do NOT
+# need updating each year. _advance_to() projects forward from any anchor using
+# modular arithmetic, so a 2026 anchor is equally correct in 2030 or beyond.
 # ---------------------------------------------------------------------------
 
 WEEKDAY_OFFSET = {
@@ -126,10 +130,11 @@ _RECYCLING_ZONE_WEEK_MONDAYS = {
 #
 # Green waste has 4 independent zones per day, completely separate from the
 # recycling zones. The ArcGIS recycling layer does NOT contain green waste
-# zone data, so we cannot look it up programmatically.
+# zone data, so we cannot look it up programmatically — this is an inherent
+# limitation of the available open data.
 #
-# Instead we derive it from the published toogoodtowaste.co.nz zone maps.
-# Green waste is collected every 4 weeks.
+# Instead we derive it from the published HCC zone maps (previously hosted at
+# toogoodtowaste.co.nz). Green waste is collected every 4 weeks.
 #
 # The anchor is the Monday of the reference week for each green waste zone,
 # derived from the 2026 calendar. Zone 1 green waste for Tuesday was confirmed
@@ -142,8 +147,11 @@ _RECYCLING_ZONE_WEEK_MONDAYS = {
 #
 # We therefore generate green waste entries for ALL 4 zones and label them
 # clearly so users can identify which one matches their bin by checking
-# toogoodtowaste.co.nz/bin-enquiries/collection-zones-and-calendars, then
-# use the `types` filter in configuration to show only their correct zone.
+# the HCC website, then use the `types` filter in configuration to show only
+# their correct zone.
+#
+# NOTE: Like the recycling anchors above, these are permanent historical
+# reference points. _advance_to() handles forward projection indefinitely.
 #
 # Confirmed anchor week Mondays (from 2026 calendar, all zones cycle 4-weekly):
 #   Green Zone 1: week of 2026-04-06 (confirmed offset from recycling anchors)
@@ -207,7 +215,11 @@ class Source:
         results = resp.json()
         if not results:
             raise SourceArgumentNotFound("address", address)
-        return float(results[0]["lat"]), float(results[0]["lon"])
+        lat, lon = float(results[0]["lat"]), float(results[0]["lon"])
+        # Cache resolved coordinates so subsequent fetch() calls skip Nominatim
+        # (respects the 1 req/sec usage policy for address-based configurations).
+        self._lat, self._lon = lat, lon
+        return lat, lon
 
     # ------------------------------------------------------------------
     # ArcGIS query
